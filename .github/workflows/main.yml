@@ -1,0 +1,83 @@
+name: build-image
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  image:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Get core22-desktop revision
+        id: core22-get-rev
+        run: |
+          cd core22
+          echo "cache_key=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Cache core22-desktop
+        id: cache-core22-desktop
+        uses: actions/cache@v3
+        with:
+          path: ./core22/*.snap
+          key: ${{ steps.core22-get-rev.outputs.cache_key }}
+      - name: Build core22-desktop
+        if: steps.cache-core22-desktop.outputs.cache-hit != 'true'
+        uses: snapcore/action-build@v1
+        with:
+          path: ./core22
+          # XXX: remove this when manifest generation works for base snaps again
+          build-info: false
+      - name: Build ubuntu-desktop-session
+        uses: snapcore/action-build@v1
+        id: snapcraft_session
+        with:
+          path: ./ubuntu-desktop-session
+      - name: Checkout snapd
+        uses: actions/checkout@v3
+        with:
+          repository: sergio-costas/snapd
+          ref: desktop-mega-merge
+          path: snapd
+      - name: Get snapd revision
+        id: snapd-get-rev
+        run: |
+          cd snapd
+          echo "cache_key=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Cache snapd
+        id: cache-snapd
+        uses: actions/cache@v3
+        with:
+          path: ./snapd/*.snap
+          key: ${{ steps.snapd-get-rev.outputs.cache_key }}
+      #- name: Enale snapd experimental features
+      #  run: |
+      #    cd snapd
+      #    patch -p1 < ../snapd-enable-features.patch
+      - name: Build snapd
+        if: steps.cache-snapd.outputs.cache-hit != 'true'
+        uses: snapcore/action-build@v1
+        with:
+          path: ./snapd
+          snapcraft-channel: 4.x/stable
+      - name: Install build dependencies
+        run: |
+          sudo apt install -y make squashfs-tools dosfstools mtools
+          sudo snap refresh --edge snapd
+          sudo snap install --classic ubuntu-image
+      - name: Build image
+        run: |
+          core22_snap=$(ls core22/core22-desktop_*.snap)
+          snapd_snap=$(ls snapd/snapd_*.snap)
+          make EXTRA_SNAPS="$core22_snap ${{ steps.snapcraft_session.outputs.snap }} $snapd_snap"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: image
+          path: |
+            README.md
+            *.img.gz
