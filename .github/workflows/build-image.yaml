@@ -40,7 +40,7 @@ jobs:
       - name: Checkout snapd
         uses: actions/checkout@v3
         with:
-          repository: jhenstridge/snapd
+          repository: sergio-costas/snapd
           ref: desktop-mega-merge
           path: snapd
       - name: Get snapd revision
